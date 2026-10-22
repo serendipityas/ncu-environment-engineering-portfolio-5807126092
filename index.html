@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#1a1a24">
-  <title>单摆 · 简谐运动模拟器</title>
+  <title>双摆 · 混沌运动模拟器</title>
   <style>
     :root {
       color-scheme: dark;
@@ -64,7 +64,8 @@
         #191a25;
     }
 
-    canvas { display: block; width: 100%; height: 100%; }
+    canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+    canvas.dragging { cursor: grabbing; }
 
     .stage-label {
       position: absolute;
@@ -138,7 +139,7 @@
       .buttons { justify-content: flex-end; grid-column: 1 / -1; }
       .readouts { gap: 10px; right: 12px; }
       .readout { min-width: 64px; }
-      .stage-label { left: 12px; }
+      .stage-label { top: 62px; left: 12px; }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -150,23 +151,23 @@
   <main>
     <header>
       <p class="eyebrow">Physics · Interactive Lab</p>
-      <h1>单摆运动模拟器</h1>
-      <p class="subtitle">调节摆长、重力和阻尼，观察单摆运动的实时变化。</p>
+      <h1>双摆混沌模拟器</h1>
+      <p class="subtitle">拖动任意摆球改变初始状态，观察经典双摆的混沌运动。</p>
     </header>
 
-    <section class="simulator" aria-label="单摆物理模拟器">
+    <section class="simulator" aria-label="双摆物理模拟器">
       <div class="stage">
-        <canvas id="canvas" aria-label="单摆实时运动动画">你的浏览器不支持 Canvas。</canvas>
-        <div class="stage-label">单摆运动 · 含线性阻尼</div>
+        <canvas id="canvas" aria-label="双摆实时运动动画">你的浏览器不支持 Canvas。</canvas>
+        <div class="stage-label">LAGRANGIAN DYNAMICS · RK4</div>
         <div class="readouts" aria-live="off">
-          <div class="readout"><span>摆角</span><strong id="angleReadout">45.0°</strong></div>
-          <div class="readout"><span>周期</span><strong id="periodReadout">2.84 s</strong></div>
+          <div class="readout"><span>摆角 θ₁</span><strong id="angle1Readout">120.0°</strong></div>
+          <div class="readout"><span>摆角 θ₂</span><strong id="angle2Readout">−10.0°</strong></div>
           <div class="readout"><span>时间</span><strong id="timeReadout">0.00 s</strong></div>
         </div>
       </div>
       <div class="controls">
         <div class="control">
-          <label for="length"><span>摆长 L</span><output id="lengthValue">200 px</output></label>
+          <label for="length"><span>双臂长度 L</span><output id="lengthValue">200 px</output></label>
           <input id="length" type="range" min="100" max="350" step="10" value="200">
         </div>
         <div class="control">
@@ -183,7 +184,7 @@
         </div>
       </div>
     </section>
-    <p class="note">采用非线性单摆方程与线性阻尼进行数值积分。模拟中按 100 px = 1 m 换算长度；在小角度时，单摆近似做简谐运动。</p>
+    <p class="note">两个摆球质量相等，摆臂等长；使用拉格朗日方程与四阶 Runge–Kutta 积分。可直接拖动任意摆球改变角度，释放后观察混沌运动。</p>
   </main>
 
   <script>
@@ -200,31 +201,32 @@
       const lengthValue = document.getElementById("lengthValue");
       const gravityValue = document.getElementById("gravityValue");
       const dampingValue = document.getElementById("dampingValue");
-      const angleReadout = document.getElementById("angleReadout");
-      const periodReadout = document.getElementById("periodReadout");
+      const angle1Readout = document.getElementById("angle1Readout");
+      const angle2Readout = document.getElementById("angle2Readout");
       const timeReadout = document.getElementById("timeReadout");
       const playButton = document.getElementById("playButton");
 
       const pixelsPerMeter = 100;
       const fixedStep = 1 / 240;
       const trail = [];
-      const initialAngle = 45 * Math.PI / 180;
+      const initialState = [120 * Math.PI / 180, 0, -10 * Math.PI / 180, 0];
+      const mass1 = 1;
+      const mass2 = 1;
       let width = 0;
       let height = 0;
       let pixelRatio = 1;
-      let angle = initialAngle;
-      let angularVelocity = 0;
+      let state = initialState.slice();
       let elapsed = 0;
       let lastTrailTime = 0;
       let accumulator = 0;
       let previousFrame = 0;
       let paused = false;
+      let draggedBob = 0;
 
       const lengthMeters = () => Number(lengthInput.value) / pixelsPerMeter;
       const gravity = () => Number(gravityInput.value);
       const damping = () => Number(dampingInput.value);
       const pendulumLengthPx = () => Number(lengthInput.value);
-      const period = () => 2 * Math.PI * Math.sqrt(lengthMeters() / gravity());
 
       function resizeCanvas() {
         const bounds = canvas.getBoundingClientRect();
@@ -237,35 +239,65 @@
       }
 
       function position() {
-        const pivotX = width / 2;
-        const lengthPx = pendulumLengthPx();
-        const displayScale = Math.min(1, (width / 2 - 28) / lengthPx, (height - 52) / lengthPx);
-        const drawnLength = lengthPx * Math.max(0.1, displayScale);
-        const pivotY = Math.max(28, Math.min(86, height * 0.22, height - drawnLength - 28));
+        const pivotX = width * 0.5;
+        const pivotY = height * 0.5;
+        const requestedLength = pendulumLengthPx();
+        const displayScale = Math.min(
+          1,
+          (width - 72) / (2 * requestedLength),
+          (Math.min(pivotY, height - pivotY) - 40) / (2 * requestedLength)
+        );
+        const drawnLength = requestedLength * Math.max(0.1, displayScale);
+        const x1 = pivotX + drawnLength * Math.sin(state[0]);
+        const y1 = pivotY + drawnLength * Math.cos(state[0]);
+        const x2 = x1 + drawnLength * Math.sin(state[2]);
+        const y2 = y1 + drawnLength * Math.cos(state[2]);
         return {
           pivotX,
           pivotY,
-          bobX: pivotX + drawnLength * Math.sin(angle),
-          bobY: pivotY + drawnLength * Math.cos(angle),
+          x1,
+          y1,
+          x2,
+          y2,
           lengthPx: drawnLength
         };
       }
 
-      function acceleration(theta, velocity) {
-        return -(gravity() / lengthMeters()) * Math.sin(theta) - damping() * velocity;
+      function derivative(currentState) {
+        const [theta1, omega1, theta2, omega2] = currentState;
+        const length = lengthMeters();
+        const delta = theta1 - theta2;
+        const inertia11 = (mass1 + mass2) * length * length;
+        const inertia12 = mass2 * length * length * Math.cos(delta);
+        const inertia22 = mass2 * length * length;
+        const determinant = inertia11 * inertia22 - inertia12 * inertia12;
+        const force1 = (
+          -(mass1 + mass2) * gravity() * length * Math.sin(theta1)
+          - mass2 * length * length * Math.sin(delta) * omega2 * omega2
+          - damping() * omega1
+        );
+        const force2 = (
+          mass2 * length * length * Math.sin(delta) * omega1 * omega1
+          - mass2 * gravity() * length * Math.sin(theta2)
+          - damping() * omega2
+        );
+        const theta1Acceleration = (force1 * inertia22 - inertia12 * force2) / determinant;
+        const theta2Acceleration = (inertia11 * force2 - inertia12 * force1) / determinant;
+        return [omega1, theta1Acceleration, omega2, theta2Acceleration];
+      }
+
+      function addScaled(base, increment, scale) {
+        return base.map((value, index) => value + increment[index] * scale);
       }
 
       function integrate(dt) {
-        const a1 = angularVelocity;
-        const b1 = acceleration(angle, angularVelocity);
-        const a2 = angularVelocity + b1 * dt / 2;
-        const b2 = acceleration(angle + a1 * dt / 2, a2);
-        const a3 = angularVelocity + b2 * dt / 2;
-        const b3 = acceleration(angle + a2 * dt / 2, a3);
-        const a4 = angularVelocity + b3 * dt;
-        const b4 = acceleration(angle + a3 * dt, a4);
-        angle += dt * (a1 + 2 * a2 + 2 * a3 + a4) / 6;
-        angularVelocity += dt * (b1 + 2 * b2 + 2 * b3 + b4) / 6;
+        const k1 = derivative(state);
+        const k2 = derivative(addScaled(state, k1, dt / 2));
+        const k3 = derivative(addScaled(state, k2, dt / 2));
+        const k4 = derivative(addScaled(state, k3, dt));
+        state = state.map((value, index) =>
+          value + dt * (k1[index] + 2 * k2[index] + 2 * k3[index] + k4[index]) / 6
+        );
       }
 
       function drawGrid() {
@@ -288,30 +320,23 @@
         context.clearRect(0, 0, width, height);
         drawGrid();
 
-        const { pivotX, pivotY, bobX, bobY, lengthPx } = position();
-        const maxAngle = initialAngle;
-        const arcRadius = Math.min(lengthPx * 0.48, 94);
+        const { pivotX, pivotY, x1, y1, x2, y2 } = position();
 
-        context.beginPath();
-        context.arc(pivotX, pivotY, arcRadius, Math.PI / 2 - maxAngle, Math.PI / 2 + maxAngle);
-        context.strokeStyle = "rgba(130, 217, 255, 0.16)";
-        context.lineWidth = 1;
-        context.setLineDash([3, 6]);
-        context.stroke();
-        context.setLineDash([]);
-
-        for (let i = 0; i < trail.length; i++) {
-          const point = trail[i];
-          const alpha = (i + 1) / trail.length;
+        for (let i = 1; i < trail.length; i++) {
+          const fade = i / trail.length;
+          const hue = (i * 2.4 + elapsed * 34) % 360;
           context.beginPath();
-          context.arc(point.x, point.y, 1.8 * alpha, 0, Math.PI * 2);
-          context.fillStyle = `rgba(112, 204, 255, ${alpha * 0.33})`;
-          context.fill();
+          context.moveTo(trail[i - 1].x, trail[i - 1].y);
+          context.lineTo(trail[i].x, trail[i].y);
+          context.strokeStyle = `hsla(${hue}, 100%, 68%, ${fade * 0.66})`;
+          context.lineWidth = 0.8 + fade * 2.4;
+          context.stroke();
         }
 
         context.beginPath();
         context.moveTo(pivotX, pivotY);
-        context.lineTo(bobX, bobY);
+        context.lineTo(x1, y1);
+        context.lineTo(x2, y2);
         context.strokeStyle = "rgba(216, 224, 255, 0.76)";
         context.lineWidth = 2;
         context.stroke();
@@ -324,37 +349,38 @@
         context.fill();
         context.shadowBlur = 0;
 
-        const bobRadius = 17;
-        const glow = context.createRadialGradient(bobX, bobY, 2, bobX, bobY, 34);
-        glow.addColorStop(0, "rgba(92, 205, 255, 0.24)");
+        drawBob(x1, y1, "#82d9ff", draggedBob === 1);
+        drawBob(x2, y2, "#ff79db", draggedBob === 2);
+
+        angle1Readout.textContent = `${(state[0] * 180 / Math.PI).toFixed(1)}°`;
+        angle2Readout.textContent = `${(state[2] * 180 / Math.PI).toFixed(1)}°`;
+        timeReadout.textContent = `${elapsed.toFixed(2)} s`;
+      }
+
+      function drawBob(x, y, color, isDragged) {
+        const radius = isDragged ? 18 : 15;
+        const glow = context.createRadialGradient(x, y, 2, x, y, 32);
+        glow.addColorStop(0, isDragged ? "rgba(255, 121, 219, 0.3)" : "rgba(92, 205, 255, 0.24)");
         glow.addColorStop(1, "rgba(92, 205, 255, 0)");
         context.beginPath();
-        context.arc(bobX, bobY, 34, 0, Math.PI * 2);
+        context.arc(x, y, 32, 0, Math.PI * 2);
         context.fillStyle = glow;
         context.fill();
 
-        const ball = context.createRadialGradient(
-          bobX - 6, bobY - 7, 2,
-          bobX + 2, bobY + 2, bobRadius
-        );
-        ball.addColorStop(0, "#effcff");
-        ball.addColorStop(0.28, "#9be5ff");
-        ball.addColorStop(1, "#3195c4");
+        const ball = context.createRadialGradient(x - 6, y - 7, 2, x + 2, y + 2, radius);
+        ball.addColorStop(0, "#ffffff");
+        ball.addColorStop(0.32, color);
+        ball.addColorStop(1, isDragged ? "#a735aa" : "#287dab");
         context.beginPath();
-        context.arc(bobX, bobY, bobRadius, 0, Math.PI * 2);
+        context.arc(x, y, radius, 0, Math.PI * 2);
         context.fillStyle = ball;
-        context.shadowColor = "rgba(87, 202, 255, 0.48)";
+        context.shadowColor = color;
         context.shadowBlur = 18;
         context.fill();
         context.shadowBlur = 0;
         context.lineWidth = 1;
-        context.strokeStyle = "rgba(225, 249, 255, 0.62)";
+        context.strokeStyle = "rgba(240, 249, 255, 0.72)";
         context.stroke();
-
-        const angleDegrees = angle * 180 / Math.PI;
-        angleReadout.textContent = `${angleDegrees.toFixed(1)}°`;
-        periodReadout.textContent = `${period().toFixed(2)} s`;
-        timeReadout.textContent = `${elapsed.toFixed(2)} s`;
       }
 
       function frame(timestamp) {
@@ -362,7 +388,7 @@
         const frameDelta = Math.min((timestamp - previousFrame) / 1000, 0.05);
         previousFrame = timestamp;
 
-        if (!paused) {
+        if (!paused && draggedBob === 0) {
           accumulator += frameDelta;
           while (accumulator >= fixedStep) {
             integrate(fixedStep);
@@ -370,10 +396,10 @@
             accumulator -= fixedStep;
           }
 
-          if (elapsed - lastTrailTime >= 1 / 30) {
-            const { bobX, bobY } = position();
-            trail.push({ x: bobX, y: bobY });
-            if (trail.length > 38) trail.shift();
+          if (elapsed - lastTrailTime >= 1 / 60) {
+            const { x2, y2 } = position();
+            trail.push({ x: x2, y: y2 });
+            if (trail.length > 480) trail.shift();
             lastTrailTime = elapsed;
           }
         }
@@ -383,12 +409,13 @@
       }
 
       function resetAnimation() {
-        angle = initialAngle;
-        angularVelocity = 0;
+        state = initialState.slice();
         elapsed = 0;
         lastTrailTime = 0;
         accumulator = 0;
         trail.length = 0;
+        draggedBob = 0;
+        canvas.classList.remove("dragging");
         paused = false;
         playButton.textContent = "暂停";
         playButton.setAttribute("aria-label", "暂停模拟");
@@ -398,7 +425,6 @@
         lengthValue.textContent = `${lengthInput.value} px`;
         gravityValue.textContent = `${Number(gravityInput.value).toFixed(1)} m/s²`;
         dampingValue.textContent = damping().toFixed(3);
-        periodReadout.textContent = `${period().toFixed(2)} s`;
       }
 
       for (const input of [lengthInput, gravityInput, dampingInput]) {
@@ -406,8 +432,60 @@
           updateControls();
           trail.length = 0;
           accumulator = 0;
+          const { x2, y2 } = position();
+          trail.push({ x: x2, y: y2 });
         });
       }
+
+      function pointerPosition(event) {
+        const bounds = canvas.getBoundingClientRect();
+        return { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
+      }
+
+      function updateDraggedAngle(event) {
+        const pointer = pointerPosition(event);
+        const { pivotX, pivotY, x1, y1 } = position();
+        if (draggedBob === 1) {
+          state[0] = Math.atan2(pointer.x - pivotX, pointer.y - pivotY);
+        } else if (draggedBob === 2) {
+          state[2] = Math.atan2(pointer.x - x1, pointer.y - y1);
+        }
+        state[1] = 0;
+        state[3] = 0;
+        accumulator = 0;
+        trail.length = 0;
+        const { x2, y2 } = position();
+        trail.push({ x: x2, y: y2 });
+      }
+
+      canvas.addEventListener("pointerdown", event => {
+        const pointer = pointerPosition(event);
+        const { x1, y1, x2, y2 } = position();
+        const distance1 = Math.hypot(pointer.x - x1, pointer.y - y1);
+        const distance2 = Math.hypot(pointer.x - x2, pointer.y - y2);
+        if (Math.min(distance1, distance2) > 30) return;
+
+        draggedBob = distance1 <= distance2 ? 1 : 2;
+        canvas.classList.add("dragging");
+        canvas.setPointerCapture(event.pointerId);
+        updateDraggedAngle(event);
+        event.preventDefault();
+      });
+
+      canvas.addEventListener("pointermove", event => {
+        if (draggedBob === 0) return;
+        updateDraggedAngle(event);
+      });
+
+      function releasePointer(event) {
+        if (draggedBob === 0) return;
+        updateDraggedAngle(event);
+        draggedBob = 0;
+        canvas.classList.remove("dragging");
+      }
+
+      canvas.addEventListener("pointerup", releasePointer);
+      canvas.addEventListener("pointercancel", releasePointer);
 
       playButton.addEventListener("click", () => {
         paused = !paused;

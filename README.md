@@ -42,9 +42,9 @@
 
 每周实验请放入对应文件夹。建议每周记录实验目的、步骤、结果、遇到的问题和个人总结；图片及数据文件也可以放在当周目录中。
 
-## 单摆交互模拟器
+## 双摆混沌模拟器
 
-打开根目录的 `index.html`，即可运行使用原生 HTML、CSS 和 Canvas 实现的单摆模拟器。也可以通过 [GitHub Pages 在线体验](https://serendipityas.github.io/ncu-environment-engineering-portfolio-5807126092/)。
+打开根目录的 `index.html`，即可运行使用原生 HTML、CSS 和 Canvas 实现的双摆模拟器。模拟器使用四阶 Runge–Kutta 方法求解双摆运动，可调节摆长、重力和阻尼，并可拖动摆球改变初始状态。也可以通过 [GitHub Pages 在线体验](https://serendipityas.github.io/ncu-environment-engineering-portfolio-5807126092/)。
 
 ## 人机协同三点反思
 
