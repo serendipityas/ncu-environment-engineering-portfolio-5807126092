@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1a1a24">
+  <title>单摆 · 简谐运动模拟器</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+      background: #1a1a24;
+      color: #e7e8f2;
+      font-synthesis: none;
+      text-rendering: optimizeLegibility;
+      -webkit-font-smoothing: antialiased;
+      --muted: #9798ad;
+      --line: rgba(177, 186, 230, .14);
+      --accent: #82d9ff;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      min-width: 320px;
+      min-height: 100vh;
+      margin: 0;
+      padding: 36px 20px;
+      background:
+        radial-gradient(ellipse at 50% 0%, rgba(58, 70, 116, .19), transparent 55%),
+        #1a1a24;
+    }
+
+    main { width: min(100%, 1000px); margin: 0 auto; }
+
+    header { margin-bottom: 24px; }
+
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--accent);
+      font-size: .75rem;
+      font-weight: 700;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+    }
+
+    h1 { margin: 0; font-size: clamp(1.65rem, 4vw, 2.35rem); letter-spacing: -.04em; }
+    .subtitle { margin: 9px 0 0; color: var(--muted); font-size: .95rem; }
+
+    .simulator {
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: rgba(25, 27, 40, .88);
+      box-shadow: 0 24px 80px rgba(0, 0, 0, .22);
+    }
+
+    .stage {
+      position: relative;
+      height: clamp(360px, 58vw, 540px);
+      min-height: 360px;
+      background:
+        radial-gradient(ellipse at 50% 42%, rgba(74, 86, 137, .12), transparent 54%),
+        #191a25;
+    }
+
+    canvas { display: block; width: 100%; height: 100%; }
+
+    .stage-label {
+      position: absolute;
+      top: 18px;
+      left: 20px;
+      color: #aeb1c8;
+      font-size: .77rem;
+      letter-spacing: .08em;
+      pointer-events: none;
+    }
+
+    .readouts {
+      position: absolute;
+      top: 16px;
+      right: 18px;
+      display: flex;
+      gap: 18px;
+      pointer-events: none;
+    }
+
+    .readout { min-width: 76px; text-align: right; }
+    .readout span { display: block; color: var(--muted); font-size: .68rem; }
+    .readout strong { display: block; margin-top: 3px; font-size: .95rem; font-variant-numeric: tabular-nums; }
+
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(120px, 1fr)) auto;
+      gap: 18px;
+      align-items: end;
+      padding: 22px;
+      border-top: 1px solid var(--line);
+    }
+
+    .control label {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 10px;
+      color: #b8b9cc;
+      font-size: .8rem;
+    }
+
+    output { color: #e7e8f2; font-variant-numeric: tabular-nums; }
+    input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer; }
+
+    .buttons { display: flex; gap: 9px; }
+
+    button {
+      min-height: 40px;
+      padding: 0 15px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #252737;
+      color: #e7e8f2;
+      font: inherit;
+      font-size: .83rem;
+      cursor: pointer;
+      transition: border-color .18s, background .18s, transform .18s;
+    }
+
+    button:hover { border-color: rgba(130, 217, 255, .55); background: #2b3044; }
+    button:active { transform: translateY(1px); }
+    button.primary { border-color: transparent; background: #4aa9ce; color: #101923; font-weight: 700; }
+    button.primary:hover { background: #70c6e8; }
+
+    .note { margin: 15px 2px 0; color: #85869a; font-size: .78rem; line-height: 1.6; }
+
+    @media (max-width: 680px) {
+      body { padding: 24px 14px; }
+      .controls { grid-template-columns: repeat(2, minmax(120px, 1fr)); gap: 19px 16px; padding: 18px; }
+      .buttons { justify-content: flex-end; grid-column: 1 / -1; }
+      .readouts { gap: 10px; right: 12px; }
+      .readout { min-width: 64px; }
+      .stage-label { left: 12px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">Physics · Interactive Lab</p>
+      <h1>单摆运动模拟器</h1>
+      <p class="subtitle">调节摆长、重力和阻尼，观察单摆运动的实时变化。</p>
+    </header>
+
+    <section class="simulator" aria-label="单摆物理模拟器">
+      <div class="stage">
+        <canvas id="canvas" aria-label="单摆实时运动动画">你的浏览器不支持 Canvas。</canvas>
+        <div class="stage-label">单摆运动 · 含线性阻尼</div>
+        <div class="readouts" aria-live="off">
+          <div class="readout"><span>摆角</span><strong id="angleReadout">45.0°</strong></div>
+          <div class="readout"><span>周期</span><strong id="periodReadout">2.84 s</strong></div>
+          <div class="readout"><span>时间</span><strong id="timeReadout">0.00 s</strong></div>
+        </div>
+      </div>
+      <div class="controls">
+        <div class="control">
+          <label for="length"><span>摆长 L</span><output id="lengthValue">200 px</output></label>
+          <input id="length" type="range" min="100" max="350" step="10" value="200">
+        </div>
+        <div class="control">
+          <label for="gravity"><span>重力加速度 g</span><output id="gravityValue">9.8 m/s²</output></label>
+          <input id="gravity" type="range" min="1" max="25" step="0.1" value="9.8">
+        </div>
+        <div class="control">
+          <label for="damping"><span>阻尼</span><output id="dampingValue">0.003</output></label>
+          <input id="damping" type="range" min="0" max="0.01" step="0.001" value="0.003">
+        </div>
+        <div class="buttons">
+          <button id="playButton" class="primary" type="button">暂停</button>
+          <button id="resetButton" type="button">重置摆动</button>
+        </div>
+      </div>
+    </section>
+    <p class="note">采用非线性单摆方程与线性阻尼进行数值积分。模拟中按 100 px = 1 m 换算长度；在小角度时，单摆近似做简谐运动。</p>
+  </main>
+
+  <script>
+    (() => {
+      "use strict";
+
+      const canvas = document.getElementById("canvas");
+      const context = canvas.getContext("2d");
+      if (!context) return;
+
+      const lengthInput = document.getElementById("length");
+      const gravityInput = document.getElementById("gravity");
+      const dampingInput = document.getElementById("damping");
+      const lengthValue = document.getElementById("lengthValue");
+      const gravityValue = document.getElementById("gravityValue");
+      const dampingValue = document.getElementById("dampingValue");
+      const angleReadout = document.getElementById("angleReadout");
+      const periodReadout = document.getElementById("periodReadout");
+      const timeReadout = document.getElementById("timeReadout");
+      const playButton = document.getElementById("playButton");
+
+      const pixelsPerMeter = 100;
+      const fixedStep = 1 / 240;
+      const trail = [];
+      const initialAngle = 45 * Math.PI / 180;
+      let width = 0;
+      let height = 0;
+      let pixelRatio = 1;
+      let angle = initialAngle;
+      let angularVelocity = 0;
+      let elapsed = 0;
+      let lastTrailTime = 0;
+      let accumulator = 0;
+      let previousFrame = 0;
+      let paused = false;
+
+      const lengthMeters = () => Number(lengthInput.value) / pixelsPerMeter;
+      const gravity = () => Number(gravityInput.value);
+      const damping = () => Number(dampingInput.value);
+      const pendulumLengthPx = () => Number(lengthInput.value);
+      const period = () => 2 * Math.PI * Math.sqrt(lengthMeters() / gravity());
+
+      function resizeCanvas() {
+        const bounds = canvas.getBoundingClientRect();
+        pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+        width = bounds.width;
+        height = bounds.height;
+        canvas.width = Math.round(width * pixelRatio);
+        canvas.height = Math.round(height * pixelRatio);
+        context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      }
+
+      function position() {
+        const pivotX = width / 2;
+        const lengthPx = pendulumLengthPx();
+        const displayScale = Math.min(1, (width / 2 - 28) / lengthPx, (height - 52) / lengthPx);
+        const drawnLength = lengthPx * Math.max(0.1, displayScale);
+        const pivotY = Math.max(28, Math.min(86, height * 0.22, height - drawnLength - 28));
+        return {
+          pivotX,
+          pivotY,
+          bobX: pivotX + drawnLength * Math.sin(angle),
+          bobY: pivotY + drawnLength * Math.cos(angle),
+          lengthPx: drawnLength
+        };
+      }
+
+      function acceleration(theta, velocity) {
+        return -(gravity() / lengthMeters()) * Math.sin(theta) - damping() * velocity;
+      }
+
+      function integrate(dt) {
+        const a1 = angularVelocity;
+        const b1 = acceleration(angle, angularVelocity);
+        const a2 = angularVelocity + b1 * dt / 2;
+        const b2 = acceleration(angle + a1 * dt / 2, a2);
+        const a3 = angularVelocity + b2 * dt / 2;
+        const b3 = acceleration(angle + a2 * dt / 2, a3);
+        const a4 = angularVelocity + b3 * dt;
+        const b4 = acceleration(angle + a3 * dt, a4);
+        angle += dt * (a1 + 2 * a2 + 2 * a3 + a4) / 6;
+        angularVelocity += dt * (b1 + 2 * b2 + 2 * b3 + b4) / 6;
+      }
+
+      function drawGrid() {
+        const spacing = 36;
+        context.strokeStyle = "rgba(166, 179, 226, 0.045)";
+        context.lineWidth = 1;
+        context.beginPath();
+        for (let x = spacing; x < width; x += spacing) {
+          context.moveTo(x, 0);
+          context.lineTo(x, height);
+        }
+        for (let y = spacing; y < height; y += spacing) {
+          context.moveTo(0, y);
+          context.lineTo(width, y);
+        }
+        context.stroke();
+      }
+
+      function draw() {
+        context.clearRect(0, 0, width, height);
+        drawGrid();
+
+        const { pivotX, pivotY, bobX, bobY, lengthPx } = position();
+        const maxAngle = initialAngle;
+        const arcRadius = Math.min(lengthPx * 0.48, 94);
+
+        context.beginPath();
+        context.arc(pivotX, pivotY, arcRadius, Math.PI / 2 - maxAngle, Math.PI / 2 + maxAngle);
+        context.strokeStyle = "rgba(130, 217, 255, 0.16)";
+        context.lineWidth = 1;
+        context.setLineDash([3, 6]);
+        context.stroke();
+        context.setLineDash([]);
+
+        for (let i = 0; i < trail.length; i++) {
+          const point = trail[i];
+          const alpha = (i + 1) / trail.length;
+          context.beginPath();
+          context.arc(point.x, point.y, 1.8 * alpha, 0, Math.PI * 2);
+          context.fillStyle = `rgba(112, 204, 255, ${alpha * 0.33})`;
+          context.fill();
+        }
+
+        context.beginPath();
+        context.moveTo(pivotX, pivotY);
+        context.lineTo(bobX, bobY);
+        context.strokeStyle = "rgba(216, 224, 255, 0.76)";
+        context.lineWidth = 2;
+        context.stroke();
+
+        context.beginPath();
+        context.arc(pivotX, pivotY, 6, 0, Math.PI * 2);
+        context.fillStyle = "#dfe8ff";
+        context.shadowColor = "rgba(130, 217, 255, 0.5)";
+        context.shadowBlur = 12;
+        context.fill();
+        context.shadowBlur = 0;
+
+        const bobRadius = 17;
+        const glow = context.createRadialGradient(bobX, bobY, 2, bobX, bobY, 34);
+        glow.addColorStop(0, "rgba(92, 205, 255, 0.24)");
+        glow.addColorStop(1, "rgba(92, 205, 255, 0)");
+        context.beginPath();
+        context.arc(bobX, bobY, 34, 0, Math.PI * 2);
+        context.fillStyle = glow;
+        context.fill();
+
+        const ball = context.createRadialGradient(
+          bobX - 6, bobY - 7, 2,
+          bobX + 2, bobY + 2, bobRadius
+        );
+        ball.addColorStop(0, "#effcff");
+        ball.addColorStop(0.28, "#9be5ff");
+        ball.addColorStop(1, "#3195c4");
+        context.beginPath();
+        context.arc(bobX, bobY, bobRadius, 0, Math.PI * 2);
+        context.fillStyle = ball;
+        context.shadowColor = "rgba(87, 202, 255, 0.48)";
+        context.shadowBlur = 18;
+        context.fill();
+        context.shadowBlur = 0;
+        context.lineWidth = 1;
+        context.strokeStyle = "rgba(225, 249, 255, 0.62)";
+        context.stroke();
+
+        const angleDegrees = angle * 180 / Math.PI;
+        angleReadout.textContent = `${angleDegrees.toFixed(1)}°`;
+        periodReadout.textContent = `${period().toFixed(2)} s`;
+        timeReadout.textContent = `${elapsed.toFixed(2)} s`;
+      }
+
+      function frame(timestamp) {
+        if (!previousFrame) previousFrame = timestamp;
+        const frameDelta = Math.min((timestamp - previousFrame) / 1000, 0.05);
+        previousFrame = timestamp;
+
+        if (!paused) {
+          accumulator += frameDelta;
+          while (accumulator >= fixedStep) {
+            integrate(fixedStep);
+            elapsed += fixedStep;
+            accumulator -= fixedStep;
+          }
+
+          if (elapsed - lastTrailTime >= 1 / 30) {
+            const { bobX, bobY } = position();
+            trail.push({ x: bobX, y: bobY });
+            if (trail.length > 38) trail.shift();
+            lastTrailTime = elapsed;
+          }
+        }
+
+        draw();
+        requestAnimationFrame(frame);
+      }
+
+      function resetAnimation() {
+        angle = initialAngle;
+        angularVelocity = 0;
+        elapsed = 0;
+        lastTrailTime = 0;
+        accumulator = 0;
+        trail.length = 0;
+        paused = false;
+        playButton.textContent = "暂停";
+        playButton.setAttribute("aria-label", "暂停模拟");
+      }
+
+      function updateControls() {
+        lengthValue.textContent = `${lengthInput.value} px`;
+        gravityValue.textContent = `${Number(gravityInput.value).toFixed(1)} m/s²`;
+        dampingValue.textContent = damping().toFixed(3);
+        periodReadout.textContent = `${period().toFixed(2)} s`;
+      }
+
+      for (const input of [lengthInput, gravityInput, dampingInput]) {
+        input.addEventListener("input", () => {
+          updateControls();
+          trail.length = 0;
+          accumulator = 0;
+        });
+      }
+
+      playButton.addEventListener("click", () => {
+        paused = !paused;
+        playButton.textContent = paused ? "继续" : "暂停";
+        playButton.setAttribute("aria-label", paused ? "继续模拟" : "暂停模拟");
+      });
+
+      document.getElementById("resetButton").addEventListener("click", resetAnimation);
+      window.addEventListener("resize", resizeCanvas);
+
+      resizeCanvas();
+      updateControls();
+      requestAnimationFrame(frame);
+    })();
+  </script>
+</body>
+</html>
