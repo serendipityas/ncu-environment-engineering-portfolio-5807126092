@@ -99,6 +99,30 @@
       border-top: 1px solid var(--line);
     }
 
+    .scene-picker {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      padding: 18px 22px 0;
+    }
+
+    .scene-title { margin-right: 4px; color: #b8b9cc; font-size: .8rem; }
+    .scene-button { min-height: 34px; padding: 0 14px; border-radius: 999px; }
+    .scene-button[aria-pressed="true"] {
+      border-color: rgba(130, 217, 255, .68);
+      background: rgba(88, 171, 205, .2);
+      color: #b8edff;
+      box-shadow: inset 0 0 0 1px rgba(130, 217, 255, .12);
+    }
+
+    .settings-status {
+      min-height: 1em;
+      margin: 0 22px 16px;
+      color: var(--muted);
+      font-size: .72rem;
+    }
+
     .control label {
       display: flex;
       justify-content: space-between;
@@ -137,6 +161,10 @@
       body { padding: 24px 14px; }
       .controls { grid-template-columns: repeat(2, minmax(120px, 1fr)); gap: 19px 16px; padding: 18px; }
       .buttons { justify-content: flex-end; grid-column: 1 / -1; }
+      .scene-picker { gap: 8px; padding: 16px 18px 0; }
+      .scene-title { flex-basis: 100%; }
+      .scene-button { flex: 1 1 calc(50% - 8px); }
+      .settings-status { margin: 0 18px 14px; }
       .readouts { gap: 10px; right: 12px; }
       .readout { min-width: 64px; }
       .stage-label { top: 62px; left: 12px; }
@@ -165,6 +193,13 @@
           <div class="readout"><span>时间</span><strong id="timeReadout">0.00 s</strong></div>
         </div>
       </div>
+      <div class="scene-picker" role="group" aria-label="天体重力场景">
+        <span class="scene-title">天体场景</span>
+        <button class="scene-button" type="button" data-scene="earth" aria-pressed="true">🌍 地球</button>
+        <button class="scene-button" type="button" data-scene="moon" aria-pressed="false">🌙 月球</button>
+        <button class="scene-button" type="button" data-scene="jupiter" aria-pressed="false">🪐 木星</button>
+        <button class="scene-button" type="button" data-scene="space" aria-pressed="false">✦ 太空</button>
+      </div>
       <div class="controls">
         <div class="control">
           <label for="length"><span>双臂长度 L</span><output id="lengthValue">200 px</output></label>
@@ -172,7 +207,7 @@
         </div>
         <div class="control">
           <label for="gravity"><span>重力加速度 g</span><output id="gravityValue">9.8 m/s²</output></label>
-          <input id="gravity" type="range" min="1" max="25" step="0.1" value="9.8">
+          <input id="gravity" type="range" min="0" max="25" step="0.1" value="9.8">
         </div>
         <div class="control">
           <label for="damping"><span>阻尼</span><output id="dampingValue">0.003</output></label>
@@ -183,6 +218,7 @@
           <button id="resetButton" type="button">重置摆动</button>
         </div>
       </div>
+      <p id="settingsStatus" class="settings-status" role="status" aria-live="polite"></p>
     </section>
     <p class="note">两个摆球质量相等，摆臂等长；使用拉格朗日方程与四阶 Runge–Kutta 积分。可直接拖动任意摆球改变角度，释放后观察混沌运动。</p>
   </main>
@@ -205,13 +241,26 @@
       const angle2Readout = document.getElementById("angle2Readout");
       const timeReadout = document.getElementById("timeReadout");
       const playButton = document.getElementById("playButton");
+      const settingsStatus = document.getElementById("settingsStatus");
+      const sceneButtons = [...document.querySelectorAll("[data-scene]")];
+      const storageKey = "ncu-double-pendulum-settings-v1";
+      const scenes = {
+        earth: { gravity: 9.8 },
+        moon: { gravity: 1.6 },
+        jupiter: { gravity: 24.8 },
+        space: { gravity: 0 }
+      };
 
       const pixelsPerMeter = 100;
       const fixedStep = 1 / 240;
+      const gravityTransitionDuration = 700;
       const trail = [];
       const initialState = [120 * Math.PI / 180, 0, -10 * Math.PI / 180, 0];
       const mass1 = 1;
       const mass2 = 1;
+      let settingsStorage = null;
+      let activeScene = "earth";
+      let gravityTransition = null;
       let width = 0;
       let height = 0;
       let pixelRatio = 1;
@@ -222,6 +271,93 @@
       let previousFrame = 0;
       let paused = false;
       let draggedBob = 0;
+
+      try {
+        settingsStorage = window.localStorage;
+      } catch {
+        settingsStatus.textContent = "浏览器限制了本地存储，设置仅在本次打开期间有效。";
+      }
+
+      function snapToInput(input, value) {
+        const min = Number(input.min);
+        const max = Number(input.max);
+        const step = Number(input.step) || 1;
+        const snapped = min + Math.round((value - min) / step) * step;
+        return Math.min(max, Math.max(min, Number(snapped.toFixed(4))));
+      }
+
+      function sceneForGravity(value) {
+        return Object.keys(scenes).find(key => Math.abs(scenes[key].gravity - value) < 0.051) || "custom";
+      }
+
+      function setActiveScene(scene) {
+        activeScene = scene;
+        for (const button of sceneButtons) {
+          const selected = button.dataset.scene === scene;
+          button.setAttribute("aria-pressed", String(selected));
+        }
+      }
+
+      function saveSettings(gravityOverride) {
+        if (!settingsStorage) return;
+        const settings = {
+          version: 1,
+          length: Number(lengthInput.value),
+          gravity: gravityOverride === undefined ? gravity() : gravityOverride,
+          damping: damping(),
+          scene: activeScene
+        };
+        try {
+          settingsStorage.setItem(storageKey, JSON.stringify(settings));
+          settingsStatus.textContent = "设置已自动保存到此设备。";
+        } catch {
+          settingsStorage = null;
+          settingsStatus.textContent = "无法保存设置；请检查浏览器的本地存储权限。";
+        }
+      }
+
+      function restoreSettings() {
+        if (!settingsStorage) return;
+        let saved;
+        try {
+          const raw = settingsStorage.getItem(storageKey);
+          if (!raw) return;
+          saved = JSON.parse(raw);
+        } catch {
+          settingsStatus.textContent = "上次设置无法读取，已使用默认参数。";
+          return;
+        }
+
+        if (!saved || saved.version !== 1) {
+          settingsStatus.textContent = "上次设置格式不兼容，已使用默认参数。";
+          return;
+        }
+
+        const values = [
+          [lengthInput, saved.length],
+          [gravityInput, saved.gravity],
+          [dampingInput, saved.damping]
+        ];
+        for (const [input, value] of values) {
+          if (!Number.isFinite(value) || value < Number(input.min) || value > Number(input.max)) {
+            settingsStatus.textContent = "上次设置超出有效范围，已使用默认参数。";
+            return;
+          }
+        }
+
+        lengthInput.value = String(snapToInput(lengthInput, saved.length));
+        gravityInput.value = String(snapToInput(gravityInput, saved.gravity));
+        dampingInput.value = String(snapToInput(dampingInput, saved.damping));
+        setActiveScene(
+          Object.prototype.hasOwnProperty.call(scenes, saved.scene)
+            && Math.abs(scenes[saved.scene].gravity - Number(gravityInput.value)) < 0.051
+            ? saved.scene
+            : sceneForGravity(Number(gravityInput.value))
+        );
+        settingsStatus.textContent = "已恢复上次保存的参数。";
+      }
+
+      restoreSettings();
 
       const lengthMeters = () => Number(lengthInput.value) / pixelsPerMeter;
       const gravity = () => Number(gravityInput.value);
@@ -387,6 +523,7 @@
         if (!previousFrame) previousFrame = timestamp;
         const frameDelta = Math.min((timestamp - previousFrame) / 1000, 0.05);
         previousFrame = timestamp;
+        updateGravityTransition(timestamp);
 
         if (!paused && draggedBob === 0) {
           accumulator += frameDelta;
@@ -406,6 +543,26 @@
 
         draw();
         requestAnimationFrame(frame);
+      }
+
+      function updateGravityTransition(timestamp) {
+        if (!gravityTransition) return;
+        const progress = Math.min(
+          1,
+          (timestamp - gravityTransition.startedAt) / gravityTransitionDuration
+        );
+        const eased = progress * progress * (3 - 2 * progress);
+        const value = gravityTransition.from
+          + (gravityTransition.to - gravityTransition.from) * eased;
+        gravityInput.value = snapToInput(gravityInput, value).toFixed(1);
+        gravityValue.textContent = `${gravity()} m/s²`;
+
+        if (progress === 1) {
+          gravityInput.value = gravityTransition.to.toFixed(1);
+          gravityTransition = null;
+          updateControls();
+          saveSettings();
+        }
       }
 
       function resetAnimation() {
@@ -429,11 +586,32 @@
 
       for (const input of [lengthInput, gravityInput, dampingInput]) {
         input.addEventListener("input", () => {
+          if (input === gravityInput) {
+            gravityTransition = null;
+            setActiveScene(sceneForGravity(gravity()));
+          }
           updateControls();
           trail.length = 0;
           accumulator = 0;
           const { x2, y2 } = position();
           trail.push({ x: x2, y: y2 });
+          saveSettings();
+        });
+      }
+
+      for (const button of sceneButtons) {
+        button.addEventListener("click", () => {
+          const scene = button.dataset.scene;
+          const targetGravity = scenes[scene].gravity;
+          setActiveScene(scene);
+          gravityTransition = {
+            from: gravity(),
+            to: targetGravity,
+            startedAt: performance.now()
+          };
+          trail.length = 0;
+          accumulator = 0;
+          saveSettings(targetGravity);
         });
       }
 

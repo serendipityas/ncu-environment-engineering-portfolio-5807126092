@@ -44,7 +44,7 @@
 
 ## 双摆混沌模拟器
 
-打开根目录的 `index.html`，即可运行使用原生 HTML、CSS 和 Canvas 实现的双摆模拟器。模拟器使用四阶 Runge–Kutta 方法求解双摆运动，可调节摆长、重力和阻尼，并可拖动摆球改变初始状态。也可以通过 [GitHub Pages 在线体验](https://serendipityas.github.io/ncu-environment-engineering-portfolio-5807126092/)。
+打开根目录的 `index.html`，即可运行使用原生 HTML、CSS 和 Canvas 实现的双摆模拟器。模拟器使用四阶 Runge–Kutta 方法求解双摆运动，可调节摆长、重力和阻尼，在地球、月球、木星和太空场景之间平滑切换重力，并将参数保存到浏览器以便刷新后恢复；还可拖动摆球改变初始状态。也可以通过 [GitHub Pages 在线体验](https://serendipityas.github.io/ncu-environment-engineering-portfolio-5807126092/)。
 
 ## 人机协同三点反思
 
